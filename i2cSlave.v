@@ -1,17 +1,18 @@
 
 module i2cSlave (SCL, SDA, out, errorFlag);
-    input reg SCL;
-    inout reg SDA;
+    input wire SCL;
+    inout SDA;
     output reg [7:0] out;
     output reg errorFlag;
     
-    reg address = 8'h33;
+    reg [7:0] address = 8'h0;
     reg [7:0] shiftRegOut;         //Hold shift register value
     reg readWrite;                 //Keep track of read write bit 
+    reg ackSent;
     
     reg counterEnable;             //Enable for signal counter
     reg clrCounter;                //Clear for signal counter
-    reg counterCount;
+    reg [3:0] counterCount;
 
     reg [1:0] state;                //State machine
 
@@ -21,21 +22,25 @@ module i2cSlave (SCL, SDA, out, errorFlag);
     // 2 - Reading Data
     // 3 - Reset
 
+    assign SDA = ackSent ? 0 : 'hz; 
+
     always @(negedge SDA) begin  //initiate
-        if(state == 2'h0 && SCL) begin
+        if((state == 2'h0 && SCL)|| (state === 2'h0 && errorFlag && SCL)) begin
+            errorFlag = 0;
             state = 2'h1;
             counterEnable = 1;
         end
     end
 
     always @(posedge SCL)begin
+        ackSent = 0;    //Dont send ACK bit 
         case (state)
             // 2'd0:begin
             //     clrCounter = 1;
             //     counterEnable = 0;
             // end
             2'h1:begin
-                if (shiftRegOut == address >> 1 && counterCount == 4'd8) begin
+                if (shiftRegOut == address >> 1 && counterCount == 4'd7) begin
                     state = 2'd2;
                     clrCounter = 1;
                 end
@@ -44,15 +49,15 @@ module i2cSlave (SCL, SDA, out, errorFlag);
                 end
             end
             2'd2:begin
-                SDA = 0;  //address ACK BIT
+                ackSent = 1;  //address ACK BIT
                 clrCounter = 0;
-                if(counterCount == 4'h8) begin
+                if(counterCount == 4'h7) begin
                     state = 2'd3;
                     out = shiftRegOut;
                 end
             end
             2'd3:begin
-                SDA = 0; //Data ACK BIT
+                ackSent = 1; //Data ACK BIT
                 clrCounter = 1;
                 state = 2'h0;
             end
@@ -68,8 +73,7 @@ module i2cSlave (SCL, SDA, out, errorFlag);
 
     counter signalCounter(
         .clk      (SCL),
-        .up       (counterEnable),
-        .clr      (clrCounter),
+        .clearr      (clrCounter),
         .count    (counterCount)
     );
 
